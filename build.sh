@@ -90,20 +90,25 @@ cp "$SCRIPT_DIR/patches/wmpdbg-patch-java-bridge.py" \
    subprojects/frida-gum/bindings/gumjs/wmpdbg-patch-java-bridge.py
 echo "  桥补丁脚本已就位(bindings/gumjs/)"
 
-echo "===== [3/5] 构建 ====="
+echo "===== [3/5] 构建并收集 ====="
 CORE_REV="$(git -C subprojects/frida-core rev-parse --short HEAD)"
-for target in "${TARGETS[@]}"; do
-  echo "----- ./configure --host=$target && make -----"
-  ./configure --host="$target"
-  make
-done
-
-echo "===== [4/5] 收集产物 ====="
 declare -A SHA256=()
 for target in "${TARGETS[@]}"; do
-  bin="$FRIDA_DIR/build/frida-$target/bin/frida-server"
+  echo "----- ./configure --host=$target && make -----"
+  # releng 的 meson build 目录是 ./build, 按 host 复用 —— 多 target 串行构建时
+  # 先清掉上一个 target 的构树(deps/ 工具链会保留, 不用重新下载)
+  rm -rf build
+  ./configure --host="$target"
+  make
+  # 产物定位: 实测(releng 20250512)最终 frida-server 生成在
+  # build/subprojects/frida-core/server/frida-server(相对 build 根);
+  # 路径随 releng 版本可能变, 加全局搜索兜底(精确名匹配, 不会抓到 *-raw)
+  bin="build/subprojects/frida-core/server/frida-server"
   if [ ! -f "$bin" ]; then
-    echo "产物不存在: $bin" >&2
+    bin="$(find build -type f -name 'frida-server' | head -1 || true)"
+  fi
+  if [ -z "${bin:-}" ] || [ ! -f "$bin" ]; then
+    echo "产物不存在: build/**/frida-server ($target)" >&2
     exit 1
   fi
   arch="$(arch_of "$target")"
