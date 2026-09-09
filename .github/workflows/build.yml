@@ -12,6 +12,8 @@ on:
   workflow_dispatch: {}
   push:
     branches: [main, master]
+    # 打 v* tag → 构建完成后自动发布 GitHub Release(产物 + SHA256SUMS + manifest)
+    tags: ['v*']
 
 env:
   FRIDA_VERSION: "16.7.19"
@@ -20,6 +22,8 @@ jobs:
   android-server:
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    permissions:
+      contents: write # tag 触发时创建 Release 需要
     strategy:
       fail-fast: false # 32 位 arm 失败不影响 arm64 产物
       matrix:
@@ -63,3 +67,13 @@ jobs:
             dist/frida-patched-manifest.json
           retention-days: 14
           if-no-files-found: error
+
+      - name: 发布 GitHub Release（仅 tag 触发）
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            dist/frida-server-*
+            dist/SHA256SUMS
+            dist/frida-patched-manifest.json
+          generate_release_notes: true
