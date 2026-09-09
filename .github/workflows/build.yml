@@ -25,9 +25,11 @@ jobs:
     permissions:
       contents: write # tag 触发时创建 Release 需要
     strategy:
-      fail-fast: false # 32 位 arm 失败不影响 arm64 产物
+      fail-fast: false # 单架构失败不影响其他架构产物
       matrix:
-        target: [android-arm64] # 老设备需要 32 位时加: android-arm
+        # arm64=真机主流; x86_64=模拟器(MuMu/雷电等, 官方 16.x 在其新 ART 上
+        # 同样有"server 一跑 App 卡启动"的问题, 见 frida#3365)
+        target: [android-arm64, android-x86_64]
     steps:
       - name: Checkout (build.sh + patches)
         uses: actions/checkout@v4
