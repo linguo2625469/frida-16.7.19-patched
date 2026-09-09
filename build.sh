@@ -125,22 +125,28 @@ echo "===== [5/5] 生成清单 ====="
   sha256sum frida-server-* | tee SHA256SUMS
 )
 BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-manifest_entries=""
+SHA_ARGS=()
 for target in "${TARGETS[@]}"; do
   arch="$(arch_of "$target")"
-  manifest_entries="$manifest_entries    \"${arch}\": \"${SHA256[$arch]}\",\n"
+  SHA_ARGS+=("${arch}" "${SHA256[$arch]}")
 done
-cat > "$DIST/frida-patched-manifest.json" <<EOF
-{
-  "version": "${FRIDA_VERSION}",
-  "note": "wmpdbg 修复版: cloak/libartbase(修 Android 新ART整机软重启, frida#3365) + java-bridge GC 扫描兜底(#387)。协议与官方 ${FRIDA_VERSION} 完全一致, 必须用 SHA256 与官方版区分。",
-  "builtAt": "${BUILT_AT}",
-  "fridaCoreRev": "${CORE_REV}",
-  "sha256": {
-$(echo -e "$manifest_entries" | sed '$ s/,$//')
-  }
+python3 - "$DIST/frida-patched-manifest.json" "$FRIDA_VERSION" "$BUILT_AT" "$CORE_REV" "${SHA_ARGS[@]}" <<'PYEOF'
+import json, sys
+out, version, built_at, core_rev = sys.argv[1:5]
+sha = dict(zip(sys.argv[5::2], sys.argv[6::2]))
+m = {
+    "version": version,
+    "note": ("wmpdbg 修复版: cloak/libartbase(修 Android 新ART整机软重启, frida#3365) "
+             "+ java-bridge GC 扫描兜底(#387)。协议与官方 " + version +
+             " 完全一致, 必须用 SHA256 与官方版区分。"),
+    "builtAt": built_at,
+    "fridaCoreRev": core_rev,
+    "sha256": sha,
 }
-EOF
+with open(out, 'w', encoding='utf-8', newline='\n') as f:
+    json.dump(m, f, ensure_ascii=False, indent=2)
+    f.write('\n')
+PYEOF
 cat "$DIST/frida-patched-manifest.json"
 echo ""
 echo "构建完成。发布: 把 dist/ 下的二进制与 manifest 上传到服务端, 并把"
