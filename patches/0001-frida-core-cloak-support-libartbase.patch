@@ -1,0 +1,64 @@
+--- a/lib/payload/cloak.vala
++++ b/lib/payload/cloak.vala
+@@ -50,21 +50,39 @@
+ 		private static string expected_magic = "%u (".printf (Posix.getpid ());
+ 
+ 		[CCode (has_target = false)]
+-		private delegate ssize_t ReadFunc (int fd, void * buf, size_t count);
++		private delegate ssize_t ReadFunc (int fd, void * buf, size_t count, size_t buflen);
+ 
+ 		construct {
+-			var art = Gum.Process.find_module_by_name ("libart.so");
+-			if (art != null) {
+-				art.enumerate_imports (imp => {
+-					if (imp.name == "read") {
+-						read_slot = (ReadFunc *) imp.slot;
+-						return false;
+-					}
+-					return true;
+-				});
++			// [wmpdbg] 2024-11 起的 ART(经 Google Play 系统更新推送的 ART 模块, 以及
++			// Android 15+/16 固件自带版本)把线程统计代码从 libart.so 挪到了 libartbase.so,
++			// 且 FORTIFY 后经 __read_chk 而非 read。官方 16.x 只 hook libart.so 的 read,
++			// 在新 ART 上会 hook 错目标并触发整机软重启(frida#3365, 官方 17.2.13 才修复)。
++			// 修法(参考 frida#3365 中 hackcatml/polygraphene 验证的方案):
++			//   优先 libartbase.so/__read_chk, 逐级回退到 libart.so/read(老设备)。
++			// __read_chk 有第 4 参 buflen, 委托签名带上并透传, 避免 FORTIFY 校验读到
++			// 脏寄存器值; hook 纯 read 时多余的第 4 参按 ABI 被忽略, 无副作用。
++			string[] module_names = { "libartbase.so", "libart.so" };
++			string[] symbol_names = { "__read_chk", "read" };
++			foreach (string module_name in module_names) {
++				var mod = Gum.Process.find_module_by_name (module_name);
++				if (mod == null)
++					continue;
++				foreach (string symbol_name in symbol_names) {
++					mod.enumerate_imports (imp => {
++						if (read_slot == null && imp.name == symbol_name) {
++							read_slot = (ReadFunc *) imp.slot;
++							return false;
++						}
++						return true;
++					});
++					if (read_slot != null)
++						break;
++				}
+ 				if (read_slot != null)
+-					old_read_impl = update_read_slot (on_read);
++					break;
+ 			}
++			if (read_slot != null)
++				old_read_impl = update_read_slot (on_read);
+ 		}
+ 
+ 		~ThreadCountCloaker () {
+@@ -89,8 +107,8 @@
+ 			return old_impl;
+ 		}
+ 
+-		private static ssize_t on_read (int fd, void * buf, size_t count) {
+-			var n = old_read_impl (fd, buf, count);
++		private static ssize_t on_read (int fd, void * buf, size_t count, size_t buflen) {
++			var n = old_read_impl (fd, buf, count, buflen);
+ 			if (n <= 0)
+ 				return n;
+ 

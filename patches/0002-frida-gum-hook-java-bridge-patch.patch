@@ -1,0 +1,18 @@
+--- a/bindings/gumjs/generate-runtime.py
++++ b/bindings/gumjs/generate-runtime.py
+@@ -57,6 +57,15 @@
+                        cwd=priv_dir,
+                        check=True)
+ 
++    # [wmpdbg] 对 npm 装好的 frida-java-bridge 打动态符号补丁(幂等)。
++    # Android 15/16 新 ART 不再导出 GC 钩子所需符号, 官方逻辑会静默跳过 → GC 时 hook 崩
++    # (frida-java-bridge#387)。补丁加模式扫描兜底, 详见 wmpdbg-patch-java-bridge.py。
++    bridge_android_js = priv_dir / "node_modules" / "frida-java-bridge" / "lib" / "android.js"
++    if bridge_android_js.exists():
++        bridge_patcher = Path(__file__).resolve().parent / "wmpdbg-patch-java-bridge.py"
++        if bridge_patcher.exists():
++            subprocess.run([sys.executable, str(bridge_patcher), str(bridge_android_js)], check=True)
++
+     runtime_reldir = Path("runtime")
+     runtime_srcdir = input_dir / runtime_reldir
+     runtime_intdir = priv_dir / runtime_reldir

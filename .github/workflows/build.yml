@@ -1,0 +1,65 @@
+# 构建 wmpdbg 修复版 frida-server 16.7.19 (Android)
+#
+# 用法: 把本目录(tools/frida-patched)整体作为一个【私有】仓库的根目录内容推上去
+#       (build.sh / patches/ / .github/), 然后 Actions → build-patched-frida-server
+#       → Run workflow。产物在 Artifacts 下载。
+#
+# 私有仓库 + 自建 CI 是刻意的: frida-server 以 root 跑在客户手机上, 只有
+# "自己仓库 + 全程可见的补丁" 构建出的产物才能进分发链(供应链安全底线)。
+name: build-patched-frida-server
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [main, master]
+
+env:
+  FRIDA_VERSION: "16.7.19"
+
+jobs:
+  android-server:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false # 32 位 arm 失败不影响 arm64 产物
+      matrix:
+        target: [android-arm64] # 老设备需要 32 位时加: android-arm
+    steps:
+      - name: Checkout (build.sh + patches)
+        uses: actions/checkout@v4
+
+      - name: 安装 Android NDK (r25b)
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r25b
+
+      - name: 设置环境
+        run: |
+          echo "ANDROID_NDK_ROOT=${{ steps.setup-ndk.outputs.ndk-path }}" >> "$GITHUB_ENV"
+
+      - name: 清理磁盘 (runner 免费盘 ~14G, frida 构树较大)
+        run: |
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+                      /usr/local/share/boost /opt/hostedtoolcache/CodeQL || true
+          df -h / | tail -1
+
+      - name: 安装构建依赖
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq python3-dev python3-setuptools python3-wheel \
+            gperf bison flex gettext pkg-config cmake libtool autoconf automake
+
+      - name: 构建 (${{ matrix.target }})
+        run: bash build.sh ${{ matrix.target }}
+
+      - name: 上传产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: frida-server-patched-${{ matrix.target }}
+          path: |
+            dist/frida-server-*
+            dist/SHA256SUMS
+            dist/frida-patched-manifest.json
+          retention-days: 14
+          if-no-files-found: error

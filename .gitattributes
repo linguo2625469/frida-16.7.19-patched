@@ -1,0 +1,2 @@
+# 补丁/脚本必须保持 LF, 否则 Linux CI 上 git apply/bash 会失败
+* text=auto eol=lf
